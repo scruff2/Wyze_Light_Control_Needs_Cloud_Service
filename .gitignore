@@ -1,0 +1,20 @@
+# Sensitive runtime artifacts
+captures/android/logcat/
+captures/android/*.pcap
+captures/android/*.pcapng
+captures/*.etl
+captures/*.pcap
+captures/*.pcapng
+
+# Extracted application artifacts
+android_apk/
+android_apk_decoded/
+android_analysis/
+android_build/
+tools/
+
+# Local secrets and scratch files
+Session ID.txt
+*.idsig
+*.keystore
+*.jks
