@@ -12,11 +12,11 @@ Track the Android-specific work needed now that stock-app offline control has al
 
 ## Evidence So Far
 
-- Bulb IP: `10.0.0.50`
+- Example bulb LAN IP used in docs: `10.0.0.50`
 - Bulb model: `Wyze Bulb`
 - Firmware: `1.2.0.382`
 - Offline test result: control fails when WAN is blocked
-- Windows `pktmon` result: no packets observed for `10.0.0.50` during app actions
+- Windows `pktmon` result: no packets observed for the bulb LAN IP during app actions
 
 ## Immediate Android Work Queue
 
@@ -24,7 +24,7 @@ Track the Android-specific work needed now that stock-app offline control has al
 2. Search for:
    - `wyze`
    - `bulb`
-   - `10.0.0.50`
+   - the bulb LAN IP if known locally
    - product/model identifiers
    - `mqtt`
    - `websocket`
@@ -208,7 +208,7 @@ New immediate task sequence:
    - brightness down
    - brightness up
 4. export the capture
-5. inspect whether any direct LAN traffic to `10.0.0.50` exists
+5. inspect whether any direct LAN traffic to the bulb LAN IP exists
 6. if the capture is cloud-only and payloads remain opaque:
    - move to stronger instrumentation later
    - keep the stock app untouched unless the user explicitly changes that decision
@@ -222,8 +222,8 @@ Capture file pulled from the phone:
 Basic result:
 
 - packet count: `713`
-- packets to or from bulb IP `10.0.0.50`: `0`
-- literal occurrence of `10.0.0.50` in capture payloads: not found
+- packets to or from bulb IP: `0`
+- literal occurrence of the bulb LAN IP in capture payloads: not found
 
 Wyze-related hostnames recovered from DNS and TLS handshake metadata:
 
@@ -438,6 +438,22 @@ Cloud-independent control path from here:
   - locate teardown, FCC photos, or existing firmware images
   - inspect for UART pads / flash package / known Tuya- or ESP-class hardware lineage
 
+## Handoff To Hardware Recon
+
+The Android/app branch has now served its purpose:
+
+- it proved the stock control path is cloud-mediated
+- it produced a working standalone cloud client
+
+That means the no-cloud branch should now move to:
+
+- `hardware_firmware_recon.md`
+
+Most useful fact carried into that phase:
+
+- public teardown discussion for the original white bulb reports an `ESP-WROOM-02` module
+- that strongly suggests an `ESP8266EX`-class target with SPI flash rather than a completely opaque custom Wi-Fi platform
+
 - `WLPA19 -> com.wyze.commonlight.lightv1.DeviceTransferPage`
 - `DeviceTransferPage` immediately forwards into:
   - `/HLHWB2/opendevice`
@@ -597,3 +613,138 @@ Interpretation:
   - attached-device log review if hidden logs exist elsewhere
   - APK patching
   - runtime instrumentation
+
+## Firmware Update Path Findings
+
+Static analysis now shows that `WLPA19` firmware/update handling is split across two Wyze update stacks.
+
+### Legacy Light Update Stack
+
+Recovered from decoded assets:
+
+- `android_apk_decoded\assets\HL_API_ADDR`
+- `android_apk_decoded\assets\HL_API_URL`
+- `android_apk_decoded\assets\HL_API_SV`
+
+Confirmed values:
+
+- base update host:
+  - `https://upgrade-api.wyzecam.com:8605/`
+- legacy firmware endpoints:
+  - `get_upgrade_version_list.ashx`
+  - `get_downgrade_version_list.ashx`
+  - `getnewst.ashx`
+- update sv:
+  - `30c6cfdefea54b1cba5b85123ba412cb`
+
+`ti.plutodo.plutosuper(DeviceInfo)` builds the corresponding request map:
+
+- `sc`
+- `sv`
+- `hardwareversion`
+- `productmodel`
+- `productnum`
+- `testcode`
+- `version`
+
+`ti.plutodo.plutothrow(DeviceInfo, plutoif)` then calls:
+
+- `URL_GET_UP_FW_LIST`
+
+which resolves to:
+
+- `get_upgrade_version_list.ashx`
+
+### Newer Platform Update Stack
+
+`WpkUpdatePlatform` exposes a separate firmware API family under:
+
+- `ServiceConfig.BASE_UPDATE_URL + /app/v2/upgrade/...`
+
+Observed methods/endpoints:
+
+- `getFirmwareVersion(...)`
+  - `GET /app/v2/upgrade/firmware_version`
+  - param: `deviceId`
+- `postFirmwareVersion(...)`
+  - `POST /app/v2/upgrade/firmware_version`
+  - params:
+    - `deviceId`
+    - `deviceModel`
+    - `firmwareVersion`
+- `getFirmwareByVersion(...)`
+  - `POST /app/v2/upgrade/get_firmware_by_version`
+  - params:
+    - `device_id`
+    - `device_model`
+    - `firmware_ver`
+    - `testcode`
+
+These calls use `WpkWyzeExService` with:
+
+- `isDynamicSignature(true)`
+
+Interpretation:
+
+- the current Wyze app likely has a newer, signed platform upgrade path in addition to the old commonlight path
+- for `WLPA19`, the live app may use either stack depending on which screen/code path is reached
+
+## Live Cloud Device Metadata For The Bulb
+
+Replaying the already captured Wyze session against:
+
+- `POST https://app.wyzecam.com/app/v2/device/get_device_Info`
+
+returned:
+
+- `product_model`: `WLPA19`
+- `product_type`: `Light`
+- `hardware_ver`: `0.0.0.0`
+- `firmware_ver`: `1.2.0.382`
+- `ip`: present in the live response but redacted from tracked docs
+
+This directly fills the `DeviceInfo` fields consumed by the legacy upgrade query builder.
+
+## Legacy OTA Probe Result
+
+Using the recovered static values:
+
+- `sc = a626948714654991afd3c0dbd7cdb901`
+- `sv = 30c6cfdefea54b1cba5b85123ba412cb`
+- `hardwareversion = 0.0.0.0`
+- `productmodel = WLPA19`
+- `productnum = Light`
+- `testcode = Official Version`
+- `version = 1.2.0.382`
+
+the live request to:
+
+- `https://upgrade-api.wyzecam.com:8605/get_upgrade_version_list.ashx`
+
+reached the server but returned:
+
+- HTTP `500`
+
+Interpretation:
+
+- the endpoint is real and still live
+- the request field set is close enough to hit application code
+- one or more assumptions remain wrong, so the next step should be live request capture from the app rather than blind field guessing
+
+## Revised Best Next Step
+
+The next highest-value move is:
+
+1. use the patched Wyze app already installed on Android
+2. navigate to the bulb firmware/update screen
+3. capture the outgoing request and response
+4. identify whether `WLPA19` currently uses:
+   - the legacy `upgrade-api.wyzecam.com:8605/*.ashx` path
+   - the newer `/app/v2/upgrade/...` path
+5. if a firmware URL or downgrade package URL is returned, archive it locally and inspect the image format
+
+## Decision Log
+
+- Windows-side LAN capture is no longer the primary path because the earlier `pktmon` run saw zero packets to or from the bulb LAN IP during real app actions.
+- Cloud property control is sufficiently reverse engineered for current project needs because both CLI and REST API control are already validated.
+- The highest-value remaining no-cloud path is firmware/update-path capture from the patched Android app, not more cloud control replay work.

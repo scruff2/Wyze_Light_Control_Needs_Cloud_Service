@@ -9,6 +9,12 @@ Current status:
 - confirmed: the stock app loses control when WAN internet is blocked
 - not solved here: true cloud-independent control during an internet outage
 
+Resume point:
+
+- the practical maker-facing outcome is complete: computer control and a local REST API wrapper both work
+- the reverse-engineering branch is now focused on non-destructive firmware/update-path capture from the patched Android app
+- no tracked files in this repo should contain live tokens, your real bulb MAC, or your real LAN details
+
 This repository is therefore about two separate outcomes:
 
 1. reproducing Wyze's cloud control call from your own script
@@ -116,9 +122,38 @@ CLI flags:
 python .\wyze_light_control.py on --device-mac "A1B2C3D4E5F6" --access-token "<token>" --phone-id "<phone-id>"
 ```
 
+### 5. Run the local HTTP API
+
+Start the server:
+
+```powershell
+python .\wyze_light_api.py
+```
+
+Default bind:
+
+- `http://127.0.0.1:8787`
+
+Health check:
+
+```powershell
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8787/status | Select-Object -ExpandProperty Content
+```
+
+Control examples:
+
+```powershell
+Invoke-RestMethod -Method Post http://127.0.0.1:8787/on
+Invoke-RestMethod -Method Post http://127.0.0.1:8787/off
+Invoke-RestMethod -Method Post http://127.0.0.1:8787/brightness -ContentType 'application/json' -Body '{"brightness":40}'
+```
+
+This API is intentionally local-first and cloud-backed. It gives your automations a stable local interface, but it still depends on Wyze cloud behind the scenes.
+
 ## Repository Layout
 
 - [wyze_light_control.py](wyze_light_control.py): minimal control client
+- [wyze_light_api.py](wyze_light_api.py): tiny local REST API wrapper around the control client
 - [local_config.example.json](local_config.example.json): safe template for untracked local secrets/config
 - [handoff.md](handoff.md): running investigation log
 - [android_reverse_engineering_notes.md](android_reverse_engineering_notes.md): Android-specific reverse-engineering notes

@@ -4,13 +4,28 @@
 
 Determine whether the existing Wyze Wi-Fi bulb(s) can be controlled over the local network without depending on Wyze cloud infrastructure, and if not, shift to reverse engineering the Android app / cloud control path enough to reproduce or redirect control locally.
 
+## Current Status
+
+- computer control is solved through reproduced Wyze cloud API calls
+- a local REST API wrapper is also solved in the standalone project
+- stock-app no-cloud control is not solved
+- true no-cloud work is now focused on non-destructive firmware/update-path capture from the patched Android app
+
+Current best next action when resuming:
+
+1. reconnect the Android phone
+2. open the patched Wyze app
+3. navigate to the bulb firmware/update screen
+4. capture the outgoing request and response
+5. determine whether `WLPA19` currently uses the legacy `upgrade-api` path or the newer `/app/v2/upgrade/...` path
+
 ## Confirmed Device Data
 
 - Model: `Wyze Bulb`
 - Example MAC: `A1B2C3D4E5F6`
-- IP: `10.0.0.50`
+- Example LAN IP: `10.0.0.50`
 - Firmware: `1.2.0.382`
-- Wi-Fi network: `redacted-local-ssid`
+- Local Wi-Fi SSID: redacted in tracked docs
 - Activation date: `2020-03-27`
 - Plugin version noted by user: `3.10.0.1`
 
@@ -18,10 +33,10 @@ This information came from `Wyze Bulb Info.txt`.
 
 ## LAN Discovery Already Done
 
-- Current machine is on `10.0.0.51/24`
-- Router is `10.0.0.1`
-- ARP confirmed the bulb at `10.0.0.50` with MAC matching the device under test
-- Probing common ports on `10.0.0.50` found nothing open on:
+- Current machine was on the same `/24` LAN as the bulb during testing
+- Router was the default gateway for that subnet
+- ARP confirmed the bulb at its then-current LAN IP
+- Probing common ports on the bulb LAN IP found nothing open on:
   - `80`
   - `443`
   - `554`
@@ -34,13 +49,13 @@ This information came from `Wyze Bulb Info.txt`.
 
 ## Verification Run On 2026-03-22
 
-- Host `10.0.0.51` still has Wi-Fi connectivity on `10.0.0.0/24`
-- `Test-NetConnection 10.0.0.50` succeeded
-  - Source: `10.0.0.51`
+- Test host still had Wi-Fi connectivity on the same `/24` LAN
+- `Test-NetConnection <bulb-ip>` succeeded
+  - Source: same local subnet host
   - Interface: `Wi-Fi`
   - Ping RTT: `8 ms`
 - `Get-NetNeighbor` still shows:
-  - IP: `10.0.0.50`
+  - IP: current bulb LAN address
   - MAC: matched the device under test
   - State: `Reachable`
 - Re-checked TCP ports:
@@ -114,7 +129,7 @@ The next phase should be evidence-driven:
      - on
      - brightness low
      - brightness high
-   - Record destination hosts, protocols, and whether any traffic targets `10.0.0.50` directly.
+   - Record destination hosts, protocols, and whether any traffic targets the bulb LAN IP directly.
 
 4. Decide the attack surface based on evidence.
    - If the phone talks only to Wyze cloud: reverse engineer the cloud API/auth flow.
@@ -251,7 +266,7 @@ Immediate next step:
    - Wyze hostnames
    - destination IPs
    - HTTP/HTTPS metadata that survives without MITM
-   - any direct traffic to `10.0.0.50`
+   - any direct traffic to the bulb LAN IP
 
 This path is lower risk than uninstalling the Wyze app and may still give enough evidence to identify the live cloud endpoints and request cadence used for `P3` and `P1501`.
 
@@ -379,6 +394,72 @@ Remaining gap for the original outage-resilience goal:
   - hardware access such as UART/JTAG/flash extraction
   - or replacing the bulb firmware entirely if feasible
 
+## Local REST API Added On 2026-03-23
+
+New helper:
+
+- `wyze_light_api.py`
+
+Purpose:
+
+- expose a stable local HTTP interface for computer-side automation
+- keep the existing Wyze cloud-backed control logic behind a small localhost API
+
+Default bind:
+
+- `127.0.0.1:8787`
+
+Endpoints:
+
+- `GET /status`
+- `POST /on`
+- `POST /off`
+- `POST /brightness`
+
+Example brightness request body:
+
+```json
+{
+  "brightness": 40
+}
+```
+
+Verified:
+
+- `/status` responded correctly during local smoke test
+
+Important limitation:
+
+- this is a local automation surface, not a no-cloud breakthrough
+- it improves usability and integration now while preserving the longer-term no-cloud branch
+
+## Hardware Recon Pivot On 2026-03-23
+
+The next branch is now hardware / firmware recon rather than more app API work.
+
+Best current lead:
+
+- multiple Wyze forum posts about the original white bulb teardown report an `ESP-WROOM-02` module inside the bulb
+
+Why this matters:
+
+- `ESP-WROOM-02` is an Espressif `ESP8266EX`-based Wi-Fi module with onboard SPI flash
+- that makes the bulb materially more approachable than a fully unknown radio platform
+- it raises the odds that UART boot logs, `esptool` flash dumping, or alternate firmware work may be realistic
+
+Current working hypothesis:
+
+- if the teardown claim is accurate for this bulb revision, the most promising no-cloud path is:
+  - physically open a bulb
+  - verify the module marking
+  - identify UART / boot / flash pads
+  - dump stock firmware
+  - map GPIO and LED-driver behavior
+
+Dedicated next-phase notes:
+
+- `hardware_firmware_recon.md`
+
 - source app: stock Wyze Android app `com.hualai`
 - helper app: `PCAPdroid 1.9.1`
 - pulled capture:
@@ -393,8 +474,8 @@ User actions during the short trace:
 
 Observed result:
 
-- no packets to or from the bulb LAN IP `10.0.0.50`
-- no occurrence of `10.0.0.50` in the capture payloads
+- no packets to or from the bulb LAN IP
+- no occurrence of the bulb LAN IP in the capture payloads
 - Wyze-related DNS and TLS handshakes were observed instead
 
 Observed Wyze service names in the capture:
@@ -561,6 +642,100 @@ Current blocker is runtime access to a connected Android device and then choosin
 - APK patching to inject request logging
 - runtime instrumentation
 
+## No-Cloud Recon Update: Firmware Path
+
+Physical teardown is not currently available, so the no-cloud branch has shifted to non-destructive firmware/update-channel recon.
+
+### What Is Now Confirmed
+
+Static APK analysis shows two firmware/update stacks relevant to the original `WLPA19` bulb.
+
+Legacy light/commonlight stack:
+
+- base host:
+  - `https://upgrade-api.wyzecam.com:8605/`
+- endpoints from decoded assets:
+  - `get_upgrade_version_list.ashx`
+  - `get_downgrade_version_list.ashx`
+  - `getnewst.ashx`
+- recovered from:
+  - `android_apk_decoded\assets\HL_API_ADDR`
+  - `android_apk_decoded\assets\HL_API_URL`
+  - `android_apk_decoded\assets\HL_API_SV`
+
+Newer Wyze platform stack:
+
+- base path:
+  - `ServiceConfig.BASE_UPDATE_URL + /app/v2/upgrade/...`
+- endpoints observed in `WpkUpdatePlatform`:
+  - `/app/v2/upgrade/firmware_version`
+  - `/app/v2/upgrade/get_firmware_by_version`
+  - `/app/v2/upgrade/get_firmware_detail`
+  - `/app/v2/upgrade/get_revert_firmware`
+  - `/app/v2/upgrade/get_upgrade_status`
+  - `/app/v2/upgrade/get_upgrade_firmware_ex`
+
+### Live Cloud Metadata Recovered For The Bulb
+
+Using the already captured Wyze session, `POST /app/v2/device/get_device_Info` returned:
+
+- `product_model = WLPA19`
+- `product_type = Light`
+- `hardware_ver = 0.0.0.0`
+- `firmware_ver = 1.2.0.382`
+- `ip = <current bulb LAN IP>`
+
+### Legacy OTA Request Shape Now Known
+
+`ti.plutodo.plutosuper(DeviceInfo)` builds:
+
+- `sc`
+- `sv`
+- `hardwareversion`
+- `productmodel`
+- `productnum`
+- `testcode`
+- `version`
+
+Known values for the bulb under test:
+
+- `sc = a626948714654991afd3c0dbd7cdb901`
+- `sv = 30c6cfdefea54b1cba5b85123ba412cb`
+- `hardwareversion = 0.0.0.0`
+- `productmodel = WLPA19`
+- `productnum = Light`
+- `version = 1.2.0.382`
+- `testcode = Official Version`
+
+### Probe Result
+
+Replaying the legacy request against:
+
+- `https://upgrade-api.wyzecam.com:8605/get_upgrade_version_list.ashx`
+
+reached the live server but returned:
+
+- HTTP `500`
+
+Meaning:
+
+- the host and path are valid
+- the request is still missing at least one detail or uses a path the modern app no longer prefers for `WLPA19`
+- the next reliable step is to capture the firmware-update screen request from the patched Android app instead of guessing fields
+
+### Current Best Next Step
+
+1. reconnect the Android phone
+2. open the patched Wyze app
+3. navigate to the bulb firmware/update screen
+4. capture hook/log output for the update check
+5. determine whether the live app uses:
+   - the legacy `upgrade-api` `.ashx` path
+   - the newer signed `/app/v2/upgrade/...` path
+6. if firmware metadata or a download URL appears:
+   - save it locally
+   - inspect whether it is an ESP-style image or other directly usable artifact
+
 ### Example Commands
 
 ```powershell
@@ -575,7 +750,7 @@ Current blocker is runtime access to a connected Android device and then choosin
 When capture is started, the script:
 
 - removes old `pktmon` filters
-- adds an IP filter for `10.0.0.50`
+- adds an IP filter for the bulb LAN IP
 - starts packet capture to an `.etl` file
 
 When capture is stopped, the script:
