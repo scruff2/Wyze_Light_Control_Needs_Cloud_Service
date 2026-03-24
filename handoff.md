@@ -7,7 +7,7 @@ Determine whether the existing Wyze Wi-Fi bulb(s) can be controlled over the loc
 ## Confirmed Device Data
 
 - Model: `Wyze Bulb`
-- MAC: `A1B2C3D4E5F6`
+- Example MAC: `A1B2C3D4E5F6`
 - IP: `10.0.0.50`
 - Firmware: `1.2.0.382`
 - Wi-Fi network: `redacted-local-ssid`
@@ -20,7 +20,7 @@ This information came from `Wyze Bulb Info.txt`.
 
 - Current machine is on `10.0.0.51/24`
 - Router is `10.0.0.1`
-- ARP confirmed the bulb at `10.0.0.50` with MAC `a1-b2-c3-d4-e5-f6`
+- ARP confirmed the bulb at `10.0.0.50` with MAC matching the device under test
 - Probing common ports on `10.0.0.50` found nothing open on:
   - `80`
   - `443`
@@ -41,7 +41,7 @@ This information came from `Wyze Bulb Info.txt`.
   - Ping RTT: `8 ms`
 - `Get-NetNeighbor` still shows:
   - IP: `10.0.0.50`
-  - MAC: `A1-B2-C3-D4-E5-F6`
+  - MAC: matched the device under test
   - State: `Reachable`
 - Re-checked TCP ports:
   - `80`
@@ -363,7 +363,7 @@ Result for all three:
 
 - HTTP status: `200`
 - Wyze response `msg`: `SUCCESS`
-- target device in result: `A1B2C3D4E5F6`
+- target device in result: the expected device under test
 
 Meaning:
 
@@ -519,7 +519,7 @@ Resume from Android-side reverse engineering, not from more Windows-only LAN pro
 Immediate next step:
 
 1. extract live Wyze auth context from the Android app or patch the app to log the outgoing request headers/body
-2. confirm the exact `device_model` string submitted for MAC `A1B2C3D4E5F6`
+2. confirm the exact `device_model` string submitted for the device under test
 3. build a minimal standalone client that reproduces:
    - power off via `P3 = "0"`
    - power on via `P3 = "1"`

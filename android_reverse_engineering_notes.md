@@ -421,7 +421,7 @@ Observed result for each:
 
 - `HTTP 200`
 - response message: `SUCCESS`
-- returned device: `A1B2C3D4E5F6`
+- returned device: the expected device under test
 
 This establishes:
 
