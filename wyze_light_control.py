@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.error
@@ -11,7 +12,7 @@ from pathlib import Path
 
 API_URL = "https://app.wyzecam.com/app/v2/device_list/set_property_list"
 DEFAULT_HOOK_LOG = Path("captures/android/logcat/wyze_hook_20260323-192300.txt")
-DEFAULT_DEVICE_MAC = "A1B2C3D4E5F6"
+DEFAULT_CONFIG_PATH = Path("local_config.json")
 DEFAULT_DEVICE_MODEL = "WLPA19"
 DEFAULT_APP_NAME = "com.hualai"
 DEFAULT_APP_VERSION = "3.10.6.753"
@@ -41,19 +42,24 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_HOOK_LOG,
         help=f"Path to the captured WYZE_HOOK log. Default: {DEFAULT_HOOK_LOG}",
     )
-    parser.add_argument("--access-token", help="Override access token instead of reading from the hook log.")
-    parser.add_argument("--phone-id", help="Override phone_id instead of reading from the hook log.")
-    parser.add_argument("--device-mac", default=DEFAULT_DEVICE_MAC, help="Target device MAC without separators.")
-    parser.add_argument("--device-model", default=DEFAULT_DEVICE_MODEL, help="Target device model.")
-    parser.add_argument("--app-name", default=DEFAULT_APP_NAME, help="App package name.")
-    parser.add_argument("--app-version", default=DEFAULT_APP_VERSION, help="App version string.")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG_PATH,
+        help=f"Local JSON config file. Default: {DEFAULT_CONFIG_PATH}",
+    )
+    parser.add_argument("--access-token", help="Override access token.")
+    parser.add_argument("--phone-id", help="Override phone_id.")
+    parser.add_argument("--device-mac", help="Target device MAC without separators.")
+    parser.add_argument("--device-model", help="Target device model.")
+    parser.add_argument("--app-name", help="App package name.")
+    parser.add_argument("--app-version", help="App version string.")
     parser.add_argument(
         "--phone-system-type",
-        default=DEFAULT_PHONE_SYSTEM_TYPE,
         help="Phone system type used by the app wrapper.",
     )
-    parser.add_argument("--sc", default=DEFAULT_SC, help="Wyze API sc value.")
-    parser.add_argument("--sv", default=DEFAULT_SV, help="Wyze API sv value for device_list/set_property_list.")
+    parser.add_argument("--sc", help="Wyze API sc value.")
+    parser.add_argument("--sv", help="Wyze API sv value for device_list/set_property_list.")
     parser.add_argument(
         "--timeout",
         type=float,
@@ -96,6 +102,33 @@ def find_session_values(bodies: list[dict]) -> tuple[str, str]:
     raise ValueError("No access_token/phone_id pair found in the hook log.")
 
 
+def load_local_config(config_path: Path) -> dict:
+    if not config_path.exists():
+        return {}
+    try:
+        return json.loads(config_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Failed to parse config JSON: {config_path}") from exc
+
+
+def resolve_setting(
+    cli_value: str | None,
+    env_name: str,
+    config: dict,
+    config_key: str,
+    default: str | None = None,
+) -> str | None:
+    if cli_value:
+        return cli_value
+    env_value = os.getenv(env_name)
+    if env_value:
+        return env_value
+    config_value = config.get(config_key)
+    if isinstance(config_value, str) and config_value:
+        return config_value
+    return default
+
+
 def build_property_list(command: str, brightness: int | None) -> list[dict[str, str]]:
     if command == "on":
         return [{"pid": "P3", "pvalue": "1"}]
@@ -113,6 +146,8 @@ def build_property_list(command: str, brightness: int | None) -> list[dict[str, 
 
 def build_payload(args: argparse.Namespace, access_token: str, phone_id: str) -> dict:
     property_list = build_property_list(args.command, args.value)
+    if not args.device_mac:
+        raise ValueError("device_mac is required via --device-mac, environment, or local config")
     return {
         "access_token": access_token,
         "app_name": args.app_name,
@@ -172,8 +207,42 @@ def main() -> int:
         return 2
 
     try:
-        access_token = args.access_token
-        phone_id = args.phone_id
+        config = load_local_config(args.config)
+
+        args.device_mac = resolve_setting(args.device_mac, "WYZE_DEVICE_MAC", config, "device_mac")
+        args.device_model = resolve_setting(
+            args.device_model,
+            "WYZE_DEVICE_MODEL",
+            config,
+            "device_model",
+            DEFAULT_DEVICE_MODEL,
+        )
+        args.app_name = resolve_setting(
+            args.app_name,
+            "WYZE_APP_NAME",
+            config,
+            "app_name",
+            DEFAULT_APP_NAME,
+        )
+        args.app_version = resolve_setting(
+            args.app_version,
+            "WYZE_APP_VERSION",
+            config,
+            "app_version",
+            DEFAULT_APP_VERSION,
+        )
+        args.phone_system_type = resolve_setting(
+            args.phone_system_type,
+            "WYZE_PHONE_SYSTEM_TYPE",
+            config,
+            "phone_system_type",
+            DEFAULT_PHONE_SYSTEM_TYPE,
+        )
+        args.sc = resolve_setting(args.sc, "WYZE_SC", config, "sc", DEFAULT_SC)
+        args.sv = resolve_setting(args.sv, "WYZE_SV", config, "sv", DEFAULT_SV)
+
+        access_token = resolve_setting(args.access_token, "WYZE_ACCESS_TOKEN", config, "access_token")
+        phone_id = resolve_setting(args.phone_id, "WYZE_PHONE_ID", config, "phone_id")
         if not access_token or not phone_id:
             bodies = extract_bodies(args.hook_log)
             logged_token, logged_phone_id = find_session_values(bodies)

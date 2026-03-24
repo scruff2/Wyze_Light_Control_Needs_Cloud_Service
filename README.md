@@ -64,13 +64,23 @@ If your goal is true no-cloud control during an internet outage, the next phase 
 
 ## Quick Start
 
-### 1. Use the existing captured session
+### 1. Create a local config file
 
-If you already have a valid instrumented hook log at:
+Copy the example file and fill in your own local values:
 
-- `captures/android/logcat/wyze_hook_20260323-192300.txt`
+```powershell
+Copy-Item .\local_config.example.json .\local_config.json
+```
 
-you can run:
+`local_config.json` is ignored by git and is the safest place to keep:
+
+- `device_mac`
+- `access_token`
+- `phone_id`
+
+### 2. Use the local config
+
+Once `local_config.json` contains your own values, you can run:
 
 ```powershell
 python .\wyze_light_control.py on
@@ -78,24 +88,38 @@ python .\wyze_light_control.py off
 python .\wyze_light_control.py brightness 40
 ```
 
-### 2. Preview without sending
+If `access_token` or `phone_id` are omitted there, the script will still try to read them from:
+
+- `captures/android/logcat/wyze_hook_20260323-192300.txt`
+
+### 3. Preview without sending
 
 ```powershell
 python .\wyze_light_control.py on --dry-run
 python .\wyze_light_control.py brightness 25 --dry-run
 ```
 
-### 3. Override session values manually
+### 4. Override with environment variables or CLI
 
-If the saved token expires, pass fresh values directly:
+Environment variables:
 
 ```powershell
-python .\wyze_light_control.py on --access-token "<token>" --phone-id "<phone-id>"
+$env:WYZE_DEVICE_MAC="A1B2C3D4E5F6"
+$env:WYZE_ACCESS_TOKEN="<token>"
+$env:WYZE_PHONE_ID="<phone-id>"
+python .\wyze_light_control.py on
+```
+
+CLI flags:
+
+```powershell
+python .\wyze_light_control.py on --device-mac "A1B2C3D4E5F6" --access-token "<token>" --phone-id "<phone-id>"
 ```
 
 ## Repository Layout
 
 - [wyze_light_control.py](wyze_light_control.py): minimal control client
+- [local_config.example.json](local_config.example.json): safe template for untracked local secrets/config
 - [handoff.md](handoff.md): running investigation log
 - [android_reverse_engineering_notes.md](android_reverse_engineering_notes.md): Android-specific reverse-engineering notes
 - [docs/REPRODUCTION_GUIDE.md](docs/REPRODUCTION_GUIDE.md): cleaned-up reproduction steps for others
@@ -104,11 +128,12 @@ python .\wyze_light_control.py on --access-token "<token>" --phone-id "<phone-id
 
 Do not publish raw hook logs or live captures containing:
 
+- `device_mac`
 - `access_token`
 - `phone_id`
 - full request bodies copied from instrumented sessions
 
-The raw log used during this work contains live session data and should be treated as sensitive.
+The raw log used during this work contains live session data and should be treated as sensitive. Keep `local_config.json` untracked.
 
 ## Next Technical Branch
 

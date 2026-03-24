@@ -108,6 +108,22 @@ Important detail:
 
 The repository includes [wyze_light_control.py](../wyze_light_control.py).
 
+### Create a local config file
+
+Copy the example and fill in your own values:
+
+```powershell
+Copy-Item .\local_config.example.json .\local_config.json
+```
+
+The script now expects sensitive values to come from untracked local state rather than committed source defaults.
+
+Preferred fields to store in `local_config.json`:
+
+- `device_mac`
+- `access_token`
+- `phone_id`
+
 ### Preview the request
 
 ```powershell
@@ -125,19 +141,42 @@ python .\wyze_light_control.py brightness 40
 
 ### How the script gets session values
 
-By default it reads:
+Resolution order is:
 
-- `access_token`
-- `phone_id`
+1. CLI arguments
+2. environment variables
+3. `local_config.json`
+4. captured hook log, for `access_token` and `phone_id` only
 
-from the saved hook log:
+Supported environment variables include:
+
+- `WYZE_DEVICE_MAC`
+- `WYZE_DEVICE_MODEL`
+- `WYZE_ACCESS_TOKEN`
+- `WYZE_PHONE_ID`
+- `WYZE_APP_NAME`
+- `WYZE_APP_VERSION`
+- `WYZE_PHONE_SYSTEM_TYPE`
+- `WYZE_SC`
+- `WYZE_SV`
+
+Fallback hook log path:
 
 - `captures/android/logcat/wyze_hook_20260323-192300.txt`
 
-You can override them:
+CLI example:
 
 ```powershell
-python .\wyze_light_control.py on --access-token "<token>" --phone-id "<phone-id>"
+python .\wyze_light_control.py on --device-mac "A1B2C3D4E5F6" --access-token "<token>" --phone-id "<phone-id>"
+```
+
+Environment variable example:
+
+```powershell
+$env:WYZE_DEVICE_MAC="A1B2C3D4E5F6"
+$env:WYZE_ACCESS_TOKEN="<token>"
+$env:WYZE_PHONE_ID="<phone-id>"
+python .\wyze_light_control.py on
 ```
 
 ## Phase 4: Validate Against The Bulb
