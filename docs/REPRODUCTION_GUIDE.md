@@ -157,6 +157,8 @@ Observed result:
 - Wyze returned `HTTP 200`
 - API response message was `SUCCESS`
 
+Readers must substitute their own `device_mac`, session token, and `phone_id`.
+
 ## What This Solves
 
 - controlling the bulb from your own script

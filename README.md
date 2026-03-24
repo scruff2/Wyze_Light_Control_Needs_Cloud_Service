@@ -19,7 +19,7 @@ This repository is therefore about two separate outcomes:
 - Product: original white `Wyze Bulb`
 - Model: `WLPA19`
 - Firmware: `1.2.0.382`
-- Bulb MAC: `A1B2C3D4E5F6`
+- Example bulb MAC: `A1B2C3D4E5F6`
 - Android app package: `com.hualai`
 - Android app version: `3.10.6.753`
 
@@ -47,6 +47,8 @@ The local helper script [wyze_light_control.py](wyze_light_control.py) was valid
 - `brightness 40`
 
 Each returned `HTTP 200` and `SUCCESS`.
+
+Replace the example MAC and any saved session values with your own before attempting control.
 
 ## Important Limitation
 
